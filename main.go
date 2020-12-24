@@ -1,41 +1,43 @@
 package main
 
 import (
+	"fmt"
+	"github.com/ilya-sokolov/redbyte_bot/common"
+	"github.com/joho/godotenv"
+	"github.com/robfig/cron/v3"
 	"gopkg.in/telegram-bot-api.v4"
 	"log"
-	"io/ioutil"
-	"encoding/xml"
-	"encoding/json"
-	"net/http"
-	"net/url"
+	"os"
+	"strconv"
+	"strings"
+	"time"
 )
 
-var config Config
+var c *cron.Cron
 
-type Config struct {
-	TelegramBotToken string
-}
-
-type WikiSearchResults struct {
-	ready   bool
-	Query   string
-	Results []Result
-}
-
-type Result struct {
-	Name, Description, URL string
-}
-
-func init() {
-	xmlFile, err := ioutil.ReadFile("config.xml")
-	if err != nil {
-		log.Fatal(err)
-	}
-	xml.Unmarshal(xmlFile, &config)
-}
+const (
+	testPattern      = "2/2 * * * * *"
+	oneDay           = "@daily"
+	basePattern      = "0 10-18 10,24 * *"
+	basePatternAdd12 = "0,59 10-18 10,12,24 * *"
+)
 
 func main() {
-	bot, err := tgbotapi.NewBotAPI(config.TelegramBotToken)
+	err := godotenv.Load()
+	if err != nil {
+		log.Println(err)
+	}
+	botToken := os.Getenv("bot_token")
+	groupId, _ := strconv.Atoi(os.Getenv("group_id"))
+
+	c = cron.New(
+		cron.WithParser(
+			cron.NewParser(
+				cron.SecondOptional | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)))
+	s, _ := cron.ParseStandard(basePatternAdd12)
+
+	fmt.Println("SCHEDULER:", s.Next(s.Next(time.Now())))
+	bot, err := tgbotapi.NewBotAPI(botToken)
 	if err != nil {
 		log.Panic(err)
 	}
@@ -45,84 +47,59 @@ func main() {
 
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
-	updates, err := bot.GetUpdatesChan(u)
 
+	_, err = c.AddFunc(basePatternAdd12, func() {
+		fmt.Println("NEXT START CRON:", s.Next(s.Next(time.Now())))
+		msg := tgbotapi.NewMessage(int64(groupId), common.GetMessage())
+		bot.Send(msg)
+	})
+	if err != nil {
+		fmt.Println("Error: ", err)
+	}
+	c.Start()
+	updates, err := bot.GetUpdatesChan(u)
 	for update := range updates {
 		if update.Message == nil {
 			continue
 		}
-
-		botSay(bot, update)
+		botSay(bot, update, int64(groupId))
 	}
 }
 
-func botSay(bot *tgbotapi.BotAPI, update tgbotapi.Update) {
+func botSay(bot *tgbotapi.BotAPI, update tgbotapi.Update, groupId int64) {
+	if update.Message.Command() == "money" {
+		msg := tgbotapi.NewMessage(groupId, "Рад, что все получили зарплату")
+		_, _ = bot.Send(msg)
+		stopAndRestartCron(oneDay)
+	}
 	if len(update.Message.Text) != 0 {
 		log.Printf("[%s] %s", update.Message.From.UserName, update.Message.Text)
-		ms, _ := urlEncoded(update.Message.Text)
-		request := "https://ru.wikipedia.org/w/api.php?action=opensearch&search=" + ms + "&limit=3&origin=*&format=json"
-
-		message := wikiAPI(request)
-		for _, val := range message {
-			msg := tgbotapi.NewMessage(update.Message.Chat.ID, val)
-			bot.Send(msg)
+		message := strings.Split(update.Message.Text, " ")
+		s0 := message[0]
+		if s0 == "@SferaWoodpeckerBot" {
+			msg := tgbotapi.NewMessage(-1001290675517, common.GetYesNoMSG())
+			_, _ = bot.Send(msg)
 		}
 
-	} else if update.Message.Sticker != nil {
+	}
+	//TODO: Remove this?:
+	/*else if update.Message.Sticker != nil {
 		msgSticker := tgbotapi.NewStickerShare(update.Message.Chat.ID, update.Message.Sticker.FileID)
 		log.Printf("Sticker id = %s \n", update.Message.Sticker.FileID)
 		msgSticker.ReplyToMessageID = update.Message.MessageID
-		bot.Send(msgSticker)
-	}
+		_, _ = bot.Send(msgSticker)
+	}*/
 }
 
-func (result *WikiSearchResults) UnmarshalJSON(bs []byte) error {
-	var array []interface{}
-	if err := json.Unmarshal(bs, &array); err != nil {
-		return err
-	}
-	result.Query = array[0].(string)
-	for i := range array[1].([]interface{}) {
-		result.Results = append(result.Results, Result{
-			array[1].([]interface{})[i].(string),
-			array[2].([]interface{})[i].(string),
-			array[3].([]interface{})[i].(string),
-		})
-	}
-	return nil
-}
-
-func wikiAPI(request string) (answer []string) {
-	slice := make([]string, 3) //3 элемента
-	if response, err := http.Get(request); err != nil {
-		slice[0] = "Википедия не отвечает"
-	} else {
-		defer response.Body.Close()
-		contents, err := ioutil.ReadAll(response.Body)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		wsr := &WikiSearchResults{}
-		if err = json.Unmarshal([]byte(contents), wsr); err != nil {
-			slice[0] = "Что-то не так, попробуйте изменить свой вопрос"
-		}
-
-		if !wsr.ready {
-			slice[0] = "Что-то не так, попробуйте изменить свой вопрос"
-		}
-
-		for i := range wsr.Results {
-			slice[i] = wsr.Results[i].URL
-		}
-	}
-	return slice
-}
-
-func urlEncoded(str string) (string, error) {
-	u, err := url.Parse(str)
+func stopAndRestartCron(pattern string) {
+	c.Stop()
+	restart := cron.New()
+	_, err := restart.AddFunc(pattern, func() {
+		c.Start()
+		restart.Stop()
+	})
 	if err != nil {
-		return "", err
+		fmt.Println("Error: ", err)
 	}
-	return u.String(), nil
+	restart.Start()
 }
