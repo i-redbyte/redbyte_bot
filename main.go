@@ -68,7 +68,7 @@ func main() {
 
 func botSay(bot *tgbotapi.BotAPI, update tgbotapi.Update, groupId int64) {
 	if update.Message.Command() == "money" {
-		msg := tgbotapi.NewMessage(groupId, "Рад, что все получили зарплату")
+		msg := tgbotapi.NewMessage(groupId, "You have big money!")
 		_, _ = bot.Send(msg)
 		stopAndRestartCron(oneDay)
 	}
@@ -77,7 +77,7 @@ func botSay(bot *tgbotapi.BotAPI, update tgbotapi.Update, groupId int64) {
 		message := strings.Split(update.Message.Text, " ")
 		s0 := message[0]
 		if s0 == "@SferaWoodpeckerBot" {
-			msg := tgbotapi.NewMessage(-1001290675517, common.GetYesNoMSG())
+			msg := tgbotapi.NewMessage(groupId, common.GetYesNoMSG())
 			_, _ = bot.Send(msg)
 		}
 
