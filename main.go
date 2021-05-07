@@ -3,10 +3,12 @@ package main
 import (
 	"fmt"
 	"github.com/ilya-sokolov/redbyte_bot/common"
+	"github.com/ilya-sokolov/redbyte_bot/talks"
 	"github.com/joho/godotenv"
 	"github.com/robfig/cron/v3"
 	"gopkg.in/telegram-bot-api.v4"
 	"log"
+	"math/rand"
 	"os"
 	"strconv"
 	"strings"
@@ -73,11 +75,17 @@ func botSay(bot *tgbotapi.BotAPI, update tgbotapi.Update, groupId int64) {
 		stopAndRestartCron(oneDay)
 	}
 	if len(update.Message.Text) != 0 {
+		m := talks.NewMarkovChain("bot_dict.txt")
+		rand.Seed(time.Now().UnixNano())
+		n := rand.Intn(55)
+		println(n)
+		text := m.Generate(n)
 		log.Printf("[%s] %s", update.Message.From.UserName, update.Message.Text)
 		message := strings.Split(update.Message.Text, " ")
 		s0 := message[0]
 		if s0 == "@SferaWoodpeckerBot" {
-			msg := tgbotapi.NewMessage(groupId, common.GetYesNoMSG())
+			//msg := tgbotapi.NewMessage(groupId, common.GetYesNoMSG())
+			msg := tgbotapi.NewMessage(groupId, text)
 			_, _ = bot.Send(msg)
 		}
 
