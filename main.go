@@ -84,19 +84,20 @@ func botSay(bot *tgbotapi.BotAPI, update tgbotapi.Update, groupId int64) {
 		message := strings.Split(update.Message.Text, " ")
 		s0 := message[0]
 		if s0 == "@SferaWoodpeckerBot" {
-			//msg := tgbotapi.NewMessage(groupId, common.GetYesNoMSG())
 			msg := tgbotapi.NewMessage(groupId, text)
 			_, _ = bot.Send(msg)
+		} else if update.Message.Chat.ID != groupId {
+			msg := tgbotapi.NewMessage(update.Message.Chat.ID, text)
+			_, _ = bot.Send(msg)
 		}
-
 	}
-	//TODO: Remove this?:
-	/*else if update.Message.Sticker != nil {
+
+	if update.Message.Sticker != nil {
 		msgSticker := tgbotapi.NewStickerShare(update.Message.Chat.ID, update.Message.Sticker.FileID)
 		log.Printf("Sticker id = %s \n", update.Message.Sticker.FileID)
 		msgSticker.ReplyToMessageID = update.Message.MessageID
 		_, _ = bot.Send(msgSticker)
-	}*/
+	}
 }
 
 func stopAndRestartCron(pattern string) {
